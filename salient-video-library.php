@@ -276,15 +276,34 @@ final class Salient_Video_Library {
 				'maxCategories' => $max_categories,
 				'eagerFirst'    => $eager_first,
 				'preloadFirst'  => $preload_first,
+        // If on a video-category archive, this is non-zero and should be treated as "locked"
+        'lockedCategoryId' => $locked_category_id,
 			],
 		]);
 
 		$filters = [
-			'market'         => 0,
-			'product'        => 0,
-			'project'        => 0,
-			'video-category' => 0,
-		];
+      'market'         => 0,
+      'product'        => 0,
+      'project'        => 0,
+      'video-category' => 0,
+    ];
+
+    // If we're on a video-category archive, lock the category filter to that term
+    // and show ALL videos from that category.
+    $locked_category_id = 0;
+    if (is_tax('video-category')) {
+      $term = get_queried_object();
+      if ($term && !is_wp_error($term) && !empty($term->term_id)) {
+        $locked_category_id = (int) $term->term_id;
+        $filters['video-category'] = $locked_category_id;
+
+        // Show all videos from this category:
+        // - One section (this category only)
+        // - No per-category limit
+        $per_category   = -1;
+        $max_categories = '1';
+      }
+    }
 
 		$terms   = self::get_filter_terms_cached($filters);
 		$grouped = self::get_grouped_videos_cached($filters, $per_category, $max_categories);
@@ -323,13 +342,22 @@ final class Salient_Video_Library {
 					<?php endforeach; ?>
 				</select>
 
-				<label class="svl__sr-only" for="svl-category">Category</label>
-				<select id="svl-category" class="svl__select" data-svl-filter="video-category">
-					<option value="0">Category</option>
-					<?php foreach ($terms['video-category'] as $t) : ?>
-						<option value="<?php echo esc_attr($t->term_id); ?>"><?php echo esc_html($t->name); ?></option>
-					<?php endforeach; ?>
-				</select>
+				<div class="svl__category-wrap" <?php echo ($locked_category_id ? 'hidden' : ''); ?>>
+          <label class="svl__sr-only" for="svl-category">Category</label>
+          <select
+            id="svl-category"
+            class="svl__select"
+            data-svl-filter="video-category"
+            <?php echo ($locked_category_id ? 'disabled' : ''); ?>
+          >
+            <option value="0">Category</option>
+            <?php foreach ($terms['video-category'] as $t) : ?>
+              <option value="<?php echo esc_attr($t->term_id); ?>" <?php selected((int) $t->term_id, (int) $locked_category_id); ?>>
+                <?php echo esc_html($t->name); ?>
+              </option>
+            <?php endforeach; ?>
+          </select>
+        </div>
 
 				<button type="button" class="svl__clear" data-svl-clear hidden>
 					Clear Filters <span aria-hidden="true">×</span>
@@ -499,7 +527,7 @@ final class Salient_Video_Library {
 		$q = new WP_Query([
 			'post_type'      => 'video',
 			'post_status'    => 'publish',
-			'posts_per_page' => (int) $limit,
+			'posts_per_page' => ((int) $limit === -1 ? -1 : (int) $limit),
 			'orderby'        => 'date',
 			'order'          => 'DESC',
 			'no_found_rows'  => true,
