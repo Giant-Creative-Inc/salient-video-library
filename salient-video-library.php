@@ -264,23 +264,6 @@ final class Salient_Video_Library {
 		wp_enqueue_style(self::STYLE_HANDLE);
 		wp_enqueue_script(self::SCRIPT_HANDLE);
 
-		wp_localize_script(self::SCRIPT_HANDLE, 'SVL', [
-			'ajaxUrl' => admin_url('admin-ajax.php'),
-			'nonce'   => wp_create_nonce('svl_nonce'),
-			'strings' => [
-				'loading'   => 'Loading videos…',
-				'noResults' => 'No videos found for those filters.',
-			],
-			'config' => [
-				'perCategory'   => $per_category,
-				'maxCategories' => $max_categories,
-				'eagerFirst'    => $eager_first,
-				'preloadFirst'  => $preload_first,
-        // If on a video-category archive, this is non-zero and should be treated as "locked"
-        'lockedCategoryId' => $locked_category_id,
-			],
-		]);
-
 		$filters = [
       'market'         => 0,
       'product'        => 0,
@@ -304,6 +287,23 @@ final class Salient_Video_Library {
         $max_categories = '1';
       }
     }
+
+		wp_localize_script(self::SCRIPT_HANDLE, 'SVL', [
+			'ajaxUrl' => admin_url('admin-ajax.php'),
+			'nonce'   => wp_create_nonce('svl_nonce'),
+			'strings' => [
+				'loading'   => 'Loading videos…',
+				'noResults' => 'No videos found for those filters.',
+			],
+			'config' => [
+				'perCategory'   => $per_category,
+				'maxCategories' => $max_categories,
+				'eagerFirst'    => $eager_first,
+				'preloadFirst'  => $preload_first,
+        // If on a video-category archive, this is non-zero and should be treated as "locked"
+        'lockedCategoryId' => $locked_category_id,
+			],
+		]);
 
 		$terms   = self::get_filter_terms_cached($filters);
 		$grouped = self::get_grouped_videos_cached($filters, $per_category, $max_categories);
