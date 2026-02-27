@@ -31,12 +31,12 @@ jQuery(function ($) {
     }
 
     function updateClearButtonVisibility() {
-      const filters = getFilters();
+      const f = getFilters();
       const active =
-        (filters.market !== "0") ||
-        (filters.product !== "0") ||
-        (filters.project !== "0") ||
-        (filters.videoCategory !== "0");
+        f.market !== "0" ||
+        f.product !== "0" ||
+        f.project !== "0" ||
+        f.videoCategory !== "0";
       $clearBtn.prop("hidden", !active);
     }
 
@@ -46,10 +46,11 @@ jQuery(function ($) {
       $select.append($("<option/>").attr("value", "0").text(placeholder));
 
       (options || []).forEach((opt) => {
-        $select.append($("<option/>").attr("value", String(opt.id)).text(opt.name));
+        $select.append(
+          $("<option/>").attr("value", String(opt.id)).text(opt.name)
+        );
       });
 
-      // Restore if still valid; otherwise reset to 0.
       const has = $select.find('option[value="' + current + '"]').length > 0;
       $select.val(has ? current : "0");
     }
@@ -63,27 +64,45 @@ jQuery(function ($) {
         termPayload.market,
         current.market
       );
-
       rebuildSelect(
         $root.find('[data-svl-filter="product"]'),
         "Product",
         termPayload.product,
         current.product
       );
-
       rebuildSelect(
         $root.find('[data-svl-filter="project"]'),
         "Project",
         termPayload.project,
         current.project
       );
-
       rebuildSelect(
         $root.find('[data-svl-filter="video-category"]'),
         "Category",
         termPayload.videoCategory,
         current.videoCategory
       );
+    }
+
+    function reinitLightboxes() {
+      try {
+        // Some Salient builds expose Nectar init helpers
+        if (window.Nectar && typeof window.Nectar.lightboxInit === "function") {
+          window.Nectar.lightboxInit();
+        }
+
+        // prettyPhoto (common Salient setup)
+        if (typeof window.prettyPhoto === "function" && $.fn.prettyPhoto) {
+          $("a.pretty_photo").prettyPhoto();
+        }
+
+        // magnific (some installs)
+        if ($.fn.magnificPopup) {
+          $("a.pretty_photo").magnificPopup({ type: "iframe" });
+        }
+      } catch (e) {
+        // no-op
+      }
     }
 
     function requestUpdate() {
@@ -113,21 +132,20 @@ jQuery(function ($) {
         .done(function (res) {
           if (!res || !res.success) return;
 
-          // Update dropdown options (dependent filters).
           if (res.data && res.data.terms) {
             applyTermOptions(res.data.terms);
           }
 
-          // Update sections.
           if (res.data && typeof res.data.html === "string") {
             $results.html(res.data.html);
           }
 
-          // Update schema JSON-LD (replace existing script if present).
           if (res.data && typeof res.data.schema === "string") {
             $root.find('script[type="application/ld+json"]').remove();
             $root.append(res.data.schema);
           }
+
+          reinitLightboxes();
         })
         .always(function () {
           setLoading(false);
@@ -135,19 +153,18 @@ jQuery(function ($) {
         });
     }
 
-    // Filter changes
     $root.on("change", "[data-svl-filter]", function () {
       requestUpdate();
     });
 
-    // Clear filters
     $root.on("click", "[data-svl-clear]", function () {
       $root.find("[data-svl-filter]").val("0");
       updateClearButtonVisibility();
       requestUpdate();
     });
 
-    // Init
+    // init
     updateClearButtonVisibility();
+    reinitLightboxes();
   });
 });

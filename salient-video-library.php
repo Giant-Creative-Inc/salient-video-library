@@ -1,15 +1,15 @@
 <?php
 /**
  * Plugin Name: Salient - Video Library (WPBakery Element)
- * Description: Filterable, category-grouped video library for "video" CPT with Salient video lightbox, cached AJAX, dependent filters, schema, and LCP tuning.
- * Version: 1.0.0
+ * Description: Filterable, category-grouped video library for "video" CPT with Nectar video lightbox, cached AJAX, dependent filters, schema, and LCP tuning.
+ * Version: 1.0.1
  * Author: Giant Creative Inc
  *
  * CPT:
  * - video
  *
  * Taxonomies:
- * - video-category (video category taxonomy)
+ * - video-category
  * - market
  * - product
  * - project
@@ -25,9 +25,8 @@ defined('ABSPATH') || exit;
 
 final class Salient_Video_Library {
 
-	const SHORTCODE     = 'svl_video_library';
-
-	const CACHE_PREFIX  = 'svl_';
+	const SHORTCODE       = 'svl_video_library';
+	const CACHE_PREFIX    = 'svl_';
 	const CACHE_TTL_QUERY = 10 * MINUTE_IN_SECONDS;
 	const CACHE_TTL_TERMS = 60 * MINUTE_IN_SECONDS;
 
@@ -37,6 +36,10 @@ final class Salient_Video_Library {
 	public static function init() {
 		add_action('init', [__CLASS__, 'register_shortcode']);
 		add_action('wp_enqueue_scripts', [__CLASS__, 'register_assets']);
+
+		// IMPORTANT: Salient often loads lightbox scripts only when it detects its element in content.
+		// Our element renders via PHP/AJAX, so we force enqueue when our shortcode is on the page.
+		add_action('wp_enqueue_scripts', [__CLASS__, 'maybe_enqueue_nectar_lightbox_assets'], 20);
 
 		add_action('wp_ajax_svl_filter', [__CLASS__, 'ajax_filter']);
 		add_action('wp_ajax_nopriv_svl_filter', [__CLASS__, 'ajax_filter']);
@@ -60,14 +63,14 @@ final class Salient_Video_Library {
 			self::STYLE_HANDLE,
 			$url . 'assets/video-library.css',
 			[],
-			'1.0.0'
+			'1.0.1'
 		);
 
 		wp_register_script(
 			self::SCRIPT_HANDLE,
 			$url . 'assets/video-library.js',
 			['jquery'],
-			'1.0.0',
+			'1.0.1',
 			true
 		);
 	}
@@ -79,7 +82,7 @@ final class Salient_Video_Library {
 			'name'        => 'Video Library (Grouped)',
 			'base'        => self::SHORTCODE,
 			'category'    => 'Content',
-			'description' => 'Grouped video library for the "video" CPT with filters + Salient lightbox.',
+			'description' => 'Grouped video library for the "video" CPT with filters + Nectar lightbox.',
 			'params'      => [
 				[
 					'type'        => 'textfield',
@@ -97,29 +100,74 @@ final class Salient_Video_Library {
 					'type'        => 'textfield',
 					'heading'     => 'Eager-load first N thumbnails',
 					'param_name'  => 'eager_first',
-					'description' => 'Default 3 (first row). Helps LCP.',
+					'description' => 'Default 3. Helps LCP.',
 				],
 				[
 					'type'        => 'textfield',
 					'heading'     => 'Preload first N thumbnails',
 					'param_name'  => 'preload_first',
-					'description' => 'Default 1. Adds <link rel="preload"> for the first thumbnails.',
+					'description' => 'Default 1. Adds preload links for the first thumbnails.',
 				],
 			],
 		]);
 	}
 
 	public static function clear_caches() {
-		// Terms (scoped to post type video)
 		delete_transient('svl_terms_market_video');
 		delete_transient('svl_terms_product_video');
 		delete_transient('svl_terms_project_video');
 		delete_transient('svl_terms_video-category_video');
 
-		// Queries (unknown keys) — cheap sweep: delete option-based transients is heavy.
-		// Keep it simple: bump a version key to invalidate all query transients.
 		$ver = (int) get_option('svl_cache_ver', 1);
 		update_option('svl_cache_ver', $ver + 1, false);
+	}
+
+	private static function get_cache_ver() {
+		return (int) get_option('svl_cache_ver', 1);
+	}
+
+	/**
+	 * Force enqueue Salient/Nectar lightbox assets when our shortcode is present.
+	 *
+	 * We don’t hard-fail if handles don’t exist. We enqueue only what is registered.
+	 * This keeps compatibility across Salient versions.
+	 */
+	public static function maybe_enqueue_nectar_lightbox_assets() {
+		if (empty($GLOBALS['svl_needs_nectar_lightbox'])) return;
+
+		$maybe_script_handles = [
+			'nectar-frontend',
+			'nectar-frontend-js',
+			'nectar-init',
+			'prettyPhoto',
+			'prettyphoto',
+			'magnific',
+			'magnific-popup',
+			'jquery.prettyPhoto',
+			'jquery-magnific-popup',
+		];
+
+		foreach ($maybe_script_handles as $h) {
+			if (wp_script_is($h, 'registered')) {
+				wp_enqueue_script($h);
+			}
+		}
+
+		$maybe_style_handles = [
+			'nectar-frontend',
+			'prettyPhoto',
+			'prettyphoto',
+			'magnific',
+			'magnific-popup',
+			'jquery.prettyPhoto',
+			'jquery-magnific-popup',
+		];
+
+		foreach ($maybe_style_handles as $h) {
+			if (wp_style_is($h, 'registered')) {
+				wp_enqueue_style($h);
+			}
+		}
 	}
 
 	/**
@@ -138,7 +186,10 @@ final class Salient_Video_Library {
 		$eager_first    = max(0, absint($atts['eager_first']));
 		$preload_first  = max(0, absint($atts['preload_first']));
 
-		// Enqueue only when element exists on page.
+		// Flag page for Nectar/Salient lightbox asset enqueue.
+		$GLOBALS['svl_needs_nectar_lightbox'] = true;
+
+		// Enqueue our assets only when shortcode exists on page.
 		wp_enqueue_style(self::STYLE_HANDLE);
 		wp_enqueue_script(self::SCRIPT_HANDLE);
 
@@ -150,28 +201,23 @@ final class Salient_Video_Library {
 				'noResults' => 'No videos found for those filters.',
 			],
 			'config' => [
-				'perCategory'  => $per_category,
-				'maxCategories'=> $max_categories,
-				'eagerFirst'   => $eager_first,
-				'preloadFirst' => $preload_first,
+				'perCategory'   => $per_category,
+				'maxCategories' => $max_categories,
+				'eagerFirst'    => $eager_first,
+				'preloadFirst'  => $preload_first,
 			],
 		]);
 
-		// Initial filter values (none).
 		$filters = [
-			'market'        => 0,
-			'product'       => 0,
-			'project'       => 0,
-			'video-category'=> 0,
+			'market'         => 0,
+			'product'        => 0,
+			'project'        => 0,
+			'video-category' => 0,
 		];
 
-		// Initial terms (must be scoped to "video" post type, not other CPTs).
-		$terms = self::get_filter_terms_cached($filters);
-
-		// Initial grouped results.
+		$terms   = self::get_filter_terms_cached($filters);
 		$grouped = self::get_grouped_videos_cached($filters, $per_category, $max_categories);
 
-		// Optional LCP preload tags (first N thumbs).
 		$preloads = self::render_preload_links($grouped, $preload_first);
 
 		ob_start();
@@ -273,13 +319,6 @@ final class Salient_Video_Library {
 	 * Data / Caching
 	 * ========================= */
 
-	private static function get_cache_ver() {
-		return (int) get_option('svl_cache_ver', 1);
-	}
-
-	/**
-	 * Cached grouped results for current filters.
-	 */
 	private static function get_grouped_videos_cached($filters, $per_category, $max_categories) {
 		$key = self::CACHE_PREFIX . 'grouped_' . md5(wp_json_encode([
 			'ver' => self::get_cache_ver(),
@@ -297,10 +336,6 @@ final class Salient_Video_Library {
 		return $grouped;
 	}
 
-	/**
-	 * Cached terms for each filter (dependent dropdowns).
-	 * Returns ONLY terms that have at least 1 matching VIDEO given the current filter context.
-	 */
 	private static function get_filter_terms_cached($filters) {
 		$key = self::CACHE_PREFIX . 'filter_terms_' . md5(wp_json_encode([
 			'ver' => self::get_cache_ver(),
@@ -321,16 +356,10 @@ final class Salient_Video_Library {
 		return $out;
 	}
 
-	/**
-	 * Query grouped sections:
-	 * - Sections are video-category terms (respecting filter if selected).
-	 * - Each section shows first N videos (per_category), ordered newest first.
-	 */
 	private static function query_grouped_videos($filters, $per_category, $max_categories) {
 		$category_terms = self::get_terms_for_post_type_with_filters('video-category', 'video', $filters);
 
 		if (!empty($filters['video-category'])) {
-			// If a category is selected, reduce to that one (if it exists in scoped terms).
 			$category_terms = array_values(array_filter($category_terms, function($t) use ($filters) {
 				return (int) $t->term_id === (int) $filters['video-category'];
 			}));
@@ -348,10 +377,11 @@ final class Salient_Video_Library {
 			$videos = self::query_videos_for_section($term->term_id, $filters, $per_category);
 			if (empty($videos)) continue;
 
+			$link = get_term_link($term);
 			$grouped[] = [
 				'term_id'   => (int) $term->term_id,
 				'term_name' => (string) $term->name,
-				'term_link' => (string) get_term_link($term),
+				'term_link' => (is_wp_error($link) ? '' : (string) $link),
 				'items'     => $videos,
 			];
 		}
@@ -359,20 +389,15 @@ final class Salient_Video_Library {
 		return $grouped;
 	}
 
-	/**
-	 * Query N videos for a section category + other filters.
-	 */
 	private static function query_videos_for_section($video_category_term_id, $filters, $limit) {
 		$tax_query = ['relation' => 'AND'];
 
-		// Always scope to the section term.
 		$tax_query[] = [
 			'taxonomy' => 'video-category',
 			'field'    => 'term_id',
 			'terms'    => (int) $video_category_term_id,
 		];
 
-		// Apply other filters if selected.
 		if (!empty($filters['market'])) {
 			$tax_query[] = [
 				'taxonomy' => 'market',
@@ -416,20 +441,15 @@ final class Salient_Video_Library {
 			$video_url = function_exists('get_field') ? (string) get_field('video_url', $post_id) : '';
 
 			$thumb_id = function_exists('get_field') ? (int) get_field('thumbnail', $post_id) : 0;
-			if (!$thumb_id) {
-				// Optional fallback: featured image if thumbnail field not set.
-				$thumb_id = (int) get_post_thumbnail_id($post_id);
-			}
+			if (!$thumb_id) $thumb_id = (int) get_post_thumbnail_id($post_id);
 
-			$thumb_src = $thumb_id ? wp_get_attachment_image_url($thumb_id, 'medium_large') : '';
-			$thumb_srcset = $thumb_id ? wp_get_attachment_image_srcset($thumb_id, 'medium_large') : '';
-			$thumb_sizes = $thumb_id ? wp_get_attachment_image_sizes($thumb_id, 'medium_large') : '';
+			$thumb_src    = $thumb_id ? (string) wp_get_attachment_image_url($thumb_id, 'medium_large') : '';
+			$thumb_srcset = $thumb_id ? (string) wp_get_attachment_image_srcset($thumb_id, 'medium_large') : '';
+			$thumb_sizes  = $thumb_id ? (string) wp_get_attachment_image_sizes($thumb_id, 'medium_large') : '';
 
 			$alt = '';
-			if ($thumb_id) {
-				$alt = trim((string) get_post_meta($thumb_id, '_wp_attachment_image_alt', true));
-			}
-			if ($alt === '') $alt = $title;
+			if ($thumb_id) $alt = trim((string) get_post_meta($thumb_id, '_wp_attachment_image_alt', true));
+			if ($alt === '') $alt = (string) $title;
 
 			$out[] = [
 				'id'           => (int) $post_id,
@@ -438,9 +458,9 @@ final class Salient_Video_Library {
 				'description'  => (string) $desc,
 				'video_url'    => (string) $video_url,
 				'thumb_id'     => (int) $thumb_id,
-				'thumb_src'    => (string) $thumb_src,
-				'thumb_srcset' => (string) $thumb_srcset,
-				'thumb_sizes'  => (string) $thumb_sizes,
+				'thumb_src'    => $thumb_src,
+				'thumb_srcset' => $thumb_srcset,
+				'thumb_sizes'  => $thumb_sizes,
 				'alt'          => (string) $alt,
 				'date'         => (string) get_the_date('c', $post_id),
 			];
@@ -450,29 +470,22 @@ final class Salient_Video_Library {
 	}
 
 	/**
-	 * Term query that only returns terms used by post_type "video",
-	 * AND only those that still have matches under current filter context.
-	 *
-	 * This avoids showing terms that only have posts in other CPTs.
+	 * Term query scoped to post_type video (not other CPTs).
+	 * Returns only terms that have at least 1 matching VIDEO under current filter context.
 	 */
 	private static function get_terms_for_post_type_with_filters($taxonomy, $post_type, $filters) {
 		global $wpdb;
 
-		$taxonomy = sanitize_key($taxonomy);
+		$taxonomy  = sanitize_key($taxonomy);
 		$post_type = sanitize_key($post_type);
 
-		// Build SQL constraints for the other filters.
-		// We do this by requiring the candidate posts to match the selected term IDs.
-		$joins = "";
+		$joins  = "";
 		$wheres = "";
 		$params = [];
 
-		// Base: taxonomy we are retrieving.
 		$params[] = $taxonomy;
 		$params[] = $post_type;
 
-		// Filter helpers: join term relationships for each selected filter taxonomy.
-		// Only add these when a filter has a value.
 		$filter_tax_map = [
 			'market'         => 'market',
 			'product'        => 'product',
@@ -485,23 +498,18 @@ final class Salient_Video_Library {
 			$selected = isset($filters[$filter_key]) ? (int) $filters[$filter_key] : 0;
 			if ($selected <= 0) continue;
 
-			// Important: when building options for taxonomy X, we still keep X’s filter applied.
-			// That matches your requirement: dropdowns should only show terms that still produce results.
 			$alias_i++;
-
 			$tt = "ttf{$alias_i}";
 			$tr = "trf{$alias_i}";
 
-			$joins .= " INNER JOIN {$wpdb->term_relationships} {$tr} ON {$tr}.object_id = p.ID ";
-			$joins .= " INNER JOIN {$wpdb->term_taxonomy} {$tt} ON {$tt}.term_taxonomy_id = {$tr}.term_taxonomy_id ";
-
+			$joins  .= " INNER JOIN {$wpdb->term_relationships} {$tr} ON {$tr}.object_id = p.ID ";
+			$joins  .= " INNER JOIN {$wpdb->term_taxonomy} {$tt} ON {$tt}.term_taxonomy_id = {$tr}.term_taxonomy_id ";
 			$wheres .= " AND {$tt}.taxonomy = %s AND {$tt}.term_id = %d ";
 
 			$params[] = sanitize_key($tax);
 			$params[] = $selected;
 		}
 
-		// Term IDs that are attached to published posts of the target post type AND match filters.
 		$sql = "
 			SELECT DISTINCT tt.term_id
 			FROM {$wpdb->term_taxonomy} tt
@@ -555,7 +563,6 @@ final class Salient_Video_Library {
 		foreach ($grouped as $section) {
 			$term_name = $section['term_name'];
 			$term_link = $section['term_link'];
-			if (is_wp_error($term_link)) $term_link = '';
 
 			$html .= '<section class="svl__section" data-svl-section>';
 			$html .= '<header class="svl__section-header">';
@@ -564,14 +571,13 @@ final class Salient_Video_Library {
 			if (!empty($term_link)) {
 				$html .= '<a class="svl__viewall" href="' . esc_url($term_link) . '">View All</a>';
 			}
-			$html .= '</header>';
 
+			$html .= '</header>';
 			$html .= '<div class="svl__grid" role="list">';
 
 			foreach ($section['items'] as $item) {
 				$is_eager = ($globalIndex < $eager_first);
 				$globalIndex++;
-
 				$html .= self::render_video_card($item, $is_eager);
 			}
 
@@ -583,69 +589,86 @@ final class Salient_Video_Library {
 	}
 
 	/**
-	 * Renders one video card using Salient's nectar_video_lightbox shortcode.
-	 * Using do_shortcode keeps it consistent with Salient styling/JS.
+	 * Render a single card.
+	 *
+	 * Key goal: ensure the lightbox behaves like the WPBakery element.
+	 * - Prefer Nectar shortcode when available.
+	 * - Pass image_url as URL (more consistent than attachment ID).
+	 * - If shortcode output is empty, render a standard Salient-friendly trigger (prettyPhoto class).
 	 */
 	private static function render_video_card($it, $is_eager) {
-		$thumb_id = (int) $it['thumb_id'];
-		$thumb_src = (string) $it['thumb_src'];
-
-		// LCP tuning for the first cards:
-		// - eager loading + fetchpriority
-		$loading = $is_eager ? 'eager' : 'lazy';
-		$fetchpriority = $is_eager ? 'high' : 'auto';
-
-		// Build the Salient lightbox shortcode.
-		// Note: hover_effect attribute name in your example has a typo ("defaut").
-		// We'll keep "default" for safety. If your install expects "defaut", swap it.
-		$shortcode = sprintf(
-			'[nectar_video_lightbox link_style="play_button_2" nectar_play_button_color="Default-Accent-Color" image_url="%1$d" hover_effect="default" box_shadow="none" border_radius="none" play_button_size="default" video_url="%2$s"]',
-			$thumb_id,
-			esc_url($it['video_url'])
-		);
-
-		// Title + description are plain text under the thumbnail.
 		$title = esc_html($it['title']);
 		$desc  = esc_html($it['description']);
 
-		// We also output an img preload-friendly tag wrapper that Salient will render internally,
-		// but the shortcode controls the actual thumbnail output.
-		// If thumb is missing, show a simple fallback link.
-		$thumb_html = '';
-		if ($thumb_id > 0 && $thumb_src !== '') {
-			$thumb_html = do_shortcode($shortcode);
+		$thumb_src = (string) $it['thumb_src'];
+		$video_url = trim((string) $it['video_url']);
 
-			// Add a hidden, semantic preview image for SEO/a11y fallbacks (doesn't show).
-			// This helps if the shortcode output is JS-heavy on some setups.
-			$thumb_html .= sprintf(
-				'<img class="svl__sr-only" src="%1$s" alt="%2$s" loading="%3$s" fetchpriority="%4$s" />',
+		$loading = $is_eager ? 'eager' : 'lazy';
+		$fetchpriority = $is_eager ? 'high' : 'auto';
+
+		$img = '';
+		if ($thumb_src) {
+			$img = sprintf(
+				'<img class="svl__img" src="%1$s" %2$s %3$s alt="%4$s" loading="%5$s" fetchpriority="%6$s" decoding="async" />',
 				esc_url($thumb_src),
+				(!empty($it['thumb_srcset']) ? 'srcset="' . esc_attr($it['thumb_srcset']) . '"' : ''),
+				(!empty($it['thumb_sizes']) ? 'sizes="' . esc_attr($it['thumb_sizes']) . '"' : ''),
 				esc_attr($it['alt']),
 				esc_attr($loading),
 				esc_attr($fetchpriority)
 			);
 		} else {
-			$thumb_html = '<a class="svl__thumb-fallback" href="' . esc_url($it['video_url']) . '" target="_blank" rel="noopener">Watch video</a>';
+			$img = '<div class="svl__img-fallback" aria-hidden="true"></div>';
 		}
 
-		// Card markup
-		$html  = '<article class="svl__card" role="listitem">';
-		$html .= '<div class="svl__thumb" aria-label="Play video: ' . esc_attr($it['title']) . '">';
-		$html .= $thumb_html;
-		$html .= '</div>';
-		$html .= '<h3 class="svl__name">' . $title . '</h3>';
-		if ($desc !== '') {
-			$html .= '<p class="svl__desc">' . $desc . '</p>';
+		$thumb_html = '';
+
+		// Try Nectar shortcode first.
+		if ($video_url !== '' && shortcode_exists('nectar_video_lightbox')) {
+			$shortcode = sprintf(
+				'[nectar_video_lightbox link_style="play_button_2" nectar_play_button_color="Default-Accent-Color" image_url="%1$s" hover_effect="default" box_shadow="none" border_radius="none" play_button_size="default" video_url="%2$s"]',
+				esc_url($thumb_src),
+				esc_url($video_url)
+			);
+
+			$thumb_html = do_shortcode($shortcode);
 		}
+
+		// If shortcode output is empty, use a Salient-friendly lightbox trigger.
+		if (trim($thumb_html) === '' && $video_url !== '') {
+			$thumb_html = sprintf(
+				'<a class="svl__lightbox pretty_photo" href="%1$s" aria-label="Play video: %2$s">%3$s<span class="svl__play" aria-hidden="true"></span></a>',
+				esc_url($video_url),
+				esc_attr($it['title']),
+				$img
+			);
+		}
+
+		// Absolute fallback: open in new tab.
+		if (trim($thumb_html) === '' && $video_url !== '') {
+			$thumb_html = sprintf(
+				'<a class="svl__lightbox" href="%1$s" target="_blank" rel="noopener" aria-label="Open video in a new tab: %2$s">%3$s<span class="svl__play" aria-hidden="true"></span></a>',
+				esc_url($video_url),
+				esc_attr($it['title']),
+				$img
+			);
+		}
+
+		// If no video URL, just show the image.
+		if (trim($thumb_html) === '') {
+			$thumb_html = $img;
+		}
+
+		$html  = '<article class="svl__card" role="listitem">';
+		$html .= '<div class="svl__thumb">' . $thumb_html . '</div>';
+		$html .= '<div class="svl__watch">Watch video</div>';
+		$html .= '<h3 class="svl__name">' . $title . '</h3>';
+		if ($desc !== '') $html .= '<p class="svl__desc">' . $desc . '</p>';
 		$html .= '</article>';
 
 		return $html;
 	}
 
-	/**
-	 * Preload first N thumbnails to help LCP.
-	 * Only preloads if we have direct thumbnail URLs.
-	 */
 	private static function render_preload_links($grouped, $preload_first) {
 		if ($preload_first <= 0) return '';
 		if (empty($grouped)) return '';
@@ -653,13 +676,10 @@ final class Salient_Video_Library {
 		$urls = [];
 		foreach ($grouped as $section) {
 			foreach ($section['items'] as $it) {
-				if (!empty($it['thumb_src'])) {
-					$urls[] = $it['thumb_src'];
-				}
+				if (!empty($it['thumb_src'])) $urls[] = $it['thumb_src'];
 				if (count($urls) >= $preload_first) break 2;
 			}
 		}
-
 		if (empty($urls)) return '';
 
 		$out = '';
@@ -669,10 +689,6 @@ final class Salient_Video_Library {
 		return $out;
 	}
 
-	/**
-	 * SEO JSON-LD:
-	 * - One ItemList containing VideoObject entries for the currently visible videos.
-	 */
 	private static function render_schema_jsonld($grouped) {
 		if (empty($grouped)) return '';
 
