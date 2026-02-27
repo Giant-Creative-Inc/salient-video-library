@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Salient - Video Library (WPBakery Element)
  * Description: Filterable, category-grouped video library for "video" CPT with Nectar video lightbox, cached AJAX, dependent filters, schema, and LCP tuning.
- * Version: 1.0.1
+ * Version: 1.0.2
  * Author: Giant Creative Inc
  *
  * CPT:
@@ -14,11 +14,16 @@
  * - product
  * - project
  *
- * Fields:
+ * Fields (stored as post meta; no get_field()):
  * - Post title: the_title()
- * - ACF: description (textarea)
- * - ACF: video_url (url)
- * - ACF: thumbnail (image) -> attachment ID recommended
+ * - description (textarea)  -> meta key: description
+ * - video_url (url)         -> meta key: video_url
+ * - thumbnail (image)       -> meta key: thumbnail (BEST: store attachment ID)
+ *
+ * Notes:
+ * - We avoid ACF get_field() for speed. We read raw meta via get_post_meta().
+ * - Nectar Video Lightbox assets are often conditionally enqueued by Salient only when its element is in builder content.
+ *   Since we render via PHP/AJAX, we force-enqueue common Nectar lightbox deps when this shortcode is present.
  */
 
 defined('ABSPATH') || exit;
@@ -37,8 +42,7 @@ final class Salient_Video_Library {
 		add_action('init', [__CLASS__, 'register_shortcode']);
 		add_action('wp_enqueue_scripts', [__CLASS__, 'register_assets']);
 
-		// IMPORTANT: Salient often loads lightbox scripts only when it detects its element in content.
-		// Our element renders via PHP/AJAX, so we force enqueue when our shortcode is on the page.
+		// Force-load Nectar/Salient lightbox scripts when this element is on the page.
 		add_action('wp_enqueue_scripts', [__CLASS__, 'maybe_enqueue_nectar_lightbox_assets'], 20);
 
 		add_action('wp_ajax_svl_filter', [__CLASS__, 'ajax_filter']);
@@ -46,7 +50,7 @@ final class Salient_Video_Library {
 
 		add_action('vc_before_init', [__CLASS__, 'register_vc_element']);
 
-		// Clear caches when videos change (keeps dropdowns accurate).
+		// Cache invalidation when videos change (keeps dropdowns accurate).
 		add_action('save_post_video', [__CLASS__, 'clear_caches']);
 		add_action('trashed_post', [__CLASS__, 'clear_caches']);
 		add_action('deleted_post', [__CLASS__, 'clear_caches']);
@@ -63,14 +67,14 @@ final class Salient_Video_Library {
 			self::STYLE_HANDLE,
 			$url . 'assets/video-library.css',
 			[],
-			'1.0.1'
+			'1.0.2'
 		);
 
 		wp_register_script(
 			self::SCRIPT_HANDLE,
 			$url . 'assets/video-library.js',
 			['jquery'],
-			'1.0.1',
+			'1.0.2',
 			true
 		);
 	}
@@ -112,12 +116,18 @@ final class Salient_Video_Library {
 		]);
 	}
 
+	/* =========================================================
+	 * Cache invalidation
+	 * ========================================================= */
+
 	public static function clear_caches() {
+		// Term caches (scoped to video CPT via our SQL)
 		delete_transient('svl_terms_market_video');
 		delete_transient('svl_terms_product_video');
 		delete_transient('svl_terms_project_video');
 		delete_transient('svl_terms_video-category_video');
 
+		// Version-bump for query caches
 		$ver = (int) get_option('svl_cache_ver', 1);
 		update_option('svl_cache_ver', $ver + 1, false);
 	}
@@ -126,11 +136,71 @@ final class Salient_Video_Library {
 		return (int) get_option('svl_cache_ver', 1);
 	}
 
+	/* =========================================================
+	 * Speed helpers (NO get_field)
+	 * ========================================================= */
+
+	/**
+	 * Fast meta getter (no ACF formatting).
+	 *
+	 * @param int    $post_id Post ID
+	 * @param string $key     Meta key
+	 * @return mixed          Raw meta value
+	 */
+	private static function meta($post_id, $key) {
+		return get_post_meta((int) $post_id, (string) $key, true);
+	}
+
+	/**
+	 * Resolve thumbnail attachment ID from stored meta value.
+	 *
+	 * Best case: meta stores attachment ID (numeric).
+	 * Supported fallbacks:
+	 * - numeric string
+	 * - ACF array with ['ID'] / ['id'] / ['url']
+	 * - URL string (uses attachment_url_to_postid, slower)
+	 * - featured image as last resort
+	 *
+	 * @param mixed $raw
+	 * @param int   $post_id
+	 * @return int
+	 */
+	private static function resolve_thumb_id($raw, $post_id = 0) {
+		if (is_numeric($raw)) return (int) $raw;
+
+		if (is_array($raw)) {
+			if (!empty($raw['ID']) && is_numeric($raw['ID'])) return (int) $raw['ID'];
+			if (!empty($raw['id']) && is_numeric($raw['id'])) return (int) $raw['id'];
+
+			if (!empty($raw['url']) && is_string($raw['url'])) {
+				$id = attachment_url_to_postid($raw['url']);
+				return $id ? (int) $id : 0;
+			}
+
+			return 0;
+		}
+
+		if (is_string($raw) && $raw !== '' && preg_match('#^https?://#i', $raw)) {
+			$id = attachment_url_to_postid($raw);
+			return $id ? (int) $id : 0;
+		}
+
+		if ($post_id) {
+			$fid = (int) get_post_thumbnail_id((int) $post_id);
+			if ($fid) return $fid;
+		}
+
+		return 0;
+	}
+
+	/* =========================================================
+	 * Nectar/Salient lightbox enqueues
+	 * ========================================================= */
+
 	/**
 	 * Force enqueue Salient/Nectar lightbox assets when our shortcode is present.
 	 *
-	 * We don’t hard-fail if handles don’t exist. We enqueue only what is registered.
-	 * This keeps compatibility across Salient versions.
+	 * We only enqueue handles that are registered to avoid hard coupling across Salient versions.
 	 */
 	public static function maybe_enqueue_nectar_lightbox_assets() {
 		if (empty($GLOBALS['svl_needs_nectar_lightbox'])) return;
@@ -141,9 +211,9 @@ final class Salient_Video_Library {
 			'nectar-init',
 			'prettyPhoto',
 			'prettyphoto',
+			'jquery.prettyPhoto',
 			'magnific',
 			'magnific-popup',
-			'jquery.prettyPhoto',
 			'jquery-magnific-popup',
 		];
 
@@ -157,9 +227,9 @@ final class Salient_Video_Library {
 			'nectar-frontend',
 			'prettyPhoto',
 			'prettyphoto',
+			'jquery.prettyPhoto',
 			'magnific',
 			'magnific-popup',
-			'jquery.prettyPhoto',
 			'jquery-magnific-popup',
 		];
 
@@ -170,9 +240,10 @@ final class Salient_Video_Library {
 		}
 	}
 
-	/**
-	 * Shortcode renderer.
-	 */
+	/* =========================================================
+	 * Shortcode render
+	 * ========================================================= */
+
 	public static function render_shortcode($atts) {
 		$atts = shortcode_atts([
 			'max_categories' => '',
@@ -282,9 +353,10 @@ final class Salient_Video_Library {
 		return ob_get_clean();
 	}
 
-	/**
-	 * AJAX handler: returns updated dropdown options + updated grouped HTML + schema.
-	 */
+	/* =========================================================
+	 * AJAX
+	 * ========================================================= */
+
 	public static function ajax_filter() {
 		check_ajax_referer('svl_nonce', 'nonce');
 
@@ -315,9 +387,9 @@ final class Salient_Video_Library {
 		]);
 	}
 
-	/* =========================
-	 * Data / Caching
-	 * ========================= */
+	/* =========================================================
+	 * Caching wrappers
+	 * ========================================================= */
 
 	private static function get_grouped_videos_cached($filters, $per_category, $max_categories) {
 		$key = self::CACHE_PREFIX . 'grouped_' . md5(wp_json_encode([
@@ -355,6 +427,10 @@ final class Salient_Video_Library {
 		set_transient($key, $out, self::CACHE_TTL_TERMS);
 		return $out;
 	}
+
+	/* =========================================================
+	 * Queries
+	 * ========================================================= */
 
 	private static function query_grouped_videos($filters, $per_category, $max_categories) {
 		$category_terms = self::get_terms_for_post_type_with_filters('video-category', 'video', $filters);
@@ -437,10 +513,15 @@ final class Salient_Video_Library {
 		foreach ($q->posts as $post_id) {
 			$title = get_the_title($post_id);
 
-			$desc = function_exists('get_field') ? (string) get_field('description', $post_id) : '';
-			$video_url = function_exists('get_field') ? (string) get_field('video_url', $post_id) : '';
+			// FAST: raw meta (no ACF get_field)
+			$desc      = (string) self::meta($post_id, 'description');
+			$video_url = (string) self::meta($post_id, 'video_url');
 
-			$thumb_id = function_exists('get_field') ? (int) get_field('thumbnail', $post_id) : 0;
+			// FAST: resolve attachment ID from thumbnail meta (best if stored as ID)
+			$thumb_raw = self::meta($post_id, 'thumbnail');
+			$thumb_id  = self::resolve_thumb_id($thumb_raw, $post_id);
+
+			// Featured image fallback (still fast)
 			if (!$thumb_id) $thumb_id = (int) get_post_thumbnail_id($post_id);
 
 			$thumb_src    = $thumb_id ? (string) wp_get_attachment_image_url($thumb_id, 'medium_large') : '';
@@ -462,7 +543,7 @@ final class Salient_Video_Library {
 				'thumb_srcset' => $thumb_srcset,
 				'thumb_sizes'  => $thumb_sizes,
 				'alt'          => (string) $alt,
-				'date'         => (string) get_the_date('c', $post_id),
+				'date'         => (string) get_post_time('c', true, $post_id),
 			];
 		}
 
@@ -548,9 +629,9 @@ final class Salient_Video_Library {
 		return $out;
 	}
 
-	/* =========================
+	/* =========================================================
 	 * Rendering
-	 * ========================= */
+	 * ========================================================= */
 
 	private static function render_grouped_sections_html($grouped, $eager_first) {
 		if (empty($grouped)) {
@@ -591,21 +672,22 @@ final class Salient_Video_Library {
 	/**
 	 * Render a single card.
 	 *
-	 * Key goal: ensure the lightbox behaves like the WPBakery element.
-	 * - Prefer Nectar shortcode when available.
-	 * - Pass image_url as URL (more consistent than attachment ID).
-	 * - If shortcode output is empty, render a standard Salient-friendly trigger (prettyPhoto class).
+	 * IMPORTANT CHANGE (your request):
+	 * - We pass ONLY the thumbnail attachment ID into nectar_video_lightbox (image_url="123").
+	 * - We still render a local fallback trigger if the shortcode outputs nothing.
 	 */
 	private static function render_video_card($it, $is_eager) {
 		$title = esc_html($it['title']);
 		$desc  = esc_html($it['description']);
 
+		$thumb_id  = (int) $it['thumb_id'];
 		$thumb_src = (string) $it['thumb_src'];
 		$video_url = trim((string) $it['video_url']);
 
 		$loading = $is_eager ? 'eager' : 'lazy';
 		$fetchpriority = $is_eager ? 'high' : 'auto';
 
+		// Always render a real image tag for layout/LCP stability (even if Nectar outputs markup).
 		$img = '';
 		if ($thumb_src) {
 			$img = sprintf(
@@ -623,18 +705,21 @@ final class Salient_Video_Library {
 
 		$thumb_html = '';
 
-		// Try Nectar shortcode first.
-		if ($video_url !== '' && shortcode_exists('nectar_video_lightbox')) {
+		// Primary: Nectar shortcode (uses attachment ID only).
+		if ($video_url !== '' && $thumb_id > 0 && shortcode_exists('nectar_video_lightbox')) {
 			$shortcode = sprintf(
-				'[nectar_video_lightbox link_style="play_button_2" nectar_play_button_color="Default-Accent-Color" image_url="%1$s" hover_effect="default" box_shadow="none" border_radius="none" play_button_size="default" video_url="%2$s"]',
-				esc_url($thumb_src),
+				'[nectar_video_lightbox link_style="play_button_2" nectar_play_button_color="Default-Accent-Color" image_url="%1$d" hover_effect="default" box_shadow="none" border_radius="none" play_button_size="default" video_url="%2$s"]',
+				(int) $thumb_id,
 				esc_url($video_url)
 			);
 
 			$thumb_html = do_shortcode($shortcode);
 		}
 
-		// If shortcode output is empty, use a Salient-friendly lightbox trigger.
+		/**
+		 * If Nectar outputs nothing (missing scripts, shortcode mismatch, etc),
+		 * use a Salient-friendly trigger. We keep the same thumb image and overlay.
+		 */
 		if (trim($thumb_html) === '' && $video_url !== '') {
 			$thumb_html = sprintf(
 				'<a class="svl__lightbox pretty_photo" href="%1$s" aria-label="Play video: %2$s">%3$s<span class="svl__play" aria-hidden="true"></span></a>',
@@ -644,7 +729,7 @@ final class Salient_Video_Library {
 			);
 		}
 
-		// Absolute fallback: open in new tab.
+		// Final fallback: open in new tab.
 		if (trim($thumb_html) === '' && $video_url !== '') {
 			$thumb_html = sprintf(
 				'<a class="svl__lightbox" href="%1$s" target="_blank" rel="noopener" aria-label="Open video in a new tab: %2$s">%3$s<span class="svl__play" aria-hidden="true"></span></a>',
@@ -654,7 +739,7 @@ final class Salient_Video_Library {
 			);
 		}
 
-		// If no video URL, just show the image.
+		// If no video URL, show the image only.
 		if (trim($thumb_html) === '') {
 			$thumb_html = $img;
 		}
@@ -689,6 +774,10 @@ final class Salient_Video_Library {
 		return $out;
 	}
 
+	/**
+	 * Schema:
+	 * - ItemList of VideoObject for visible items
+	 */
 	private static function render_schema_jsonld($grouped) {
 		if (empty($grouped)) return '';
 
