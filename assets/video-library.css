@@ -1,0 +1,144 @@
+/* Wrapper */
+.svl {
+  width: 100%;
+}
+
+/* Screen reader only */
+.svl__sr-only {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Filters bar */
+.svl__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 0 18px;
+}
+
+.svl__filters-label {
+  font-weight: 600;
+  margin-right: 8px;
+}
+
+.svl__select {
+  min-width: 180px;
+  height: 40px;
+}
+
+.svl__clear {
+  margin-left: auto;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.svl__status {
+  display: flex;
+  align-items: center;
+  min-height: 40px;
+}
+
+.svl__loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(6px);
+}
+
+.svl__spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: rgba(255, 255, 255, 0.9);
+  animation: svlSpin 0.8s linear infinite;
+}
+
+@keyframes svlSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* Sections */
+.svl__section {
+  padding: 14px 0 24px;
+}
+
+.svl__section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.svl__section-title {
+  font-size: 20px;
+  line-height: 1.2;
+  margin: 0;
+}
+
+.svl__viewall {
+  font-size: 14px;
+  text-decoration: none;
+}
+
+/* Cards grid (3 across on desktop like your screenshot) */
+.svl__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 22px;
+}
+
+@media (max-width: 1024px) {
+  .svl__grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 640px) {
+  .svl__grid { grid-template-columns: 1fr; }
+}
+
+/* Card */
+.svl__card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.svl__thumb {
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+/* Title/desc */
+.svl__name {
+  font-size: 16px;
+  margin: 0;
+}
+
+.svl__desc {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
+
+/* Empty state */
+.svl__empty {
+  padding: 16px 0;
+  font-size: 14px;
+  opacity: 0.9;
+}
