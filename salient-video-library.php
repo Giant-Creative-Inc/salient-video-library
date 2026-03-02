@@ -253,7 +253,8 @@ final class Salient_Video_Library {
 		], $atts, self::SHORTCODE);
 
 		$max_categories = self::sanitize_int_or_empty($atts['max_categories']);
-		$per_category   = max(1, absint($atts['per_category']));
+		$per_raw = isset($atts['per_category']) ? (int) $atts['per_category'] : 3;
+    $per_category = ($per_raw === -1) ? -1 : max(1, $per_raw);
 		$eager_first    = max(0, absint($atts['eager_first']));
 		$preload_first  = max(0, absint($atts['preload_first']));
 
@@ -395,9 +396,14 @@ final class Salient_Video_Library {
 			'video-category' => isset($_POST['videoCategory']) ? absint($_POST['videoCategory']) : 0,
 		];
 
-		$per_category   = isset($_POST['perCategory']) ? max(1, absint($_POST['perCategory'])) : 3;
-		$max_categories = isset($_POST['maxCategories']) ? self::sanitize_int_or_empty($_POST['maxCategories']) : '';
-		$eager_first    = isset($_POST['eagerFirst']) ? max(0, absint($_POST['eagerFirst'])) : 3;
+    // Allow perCategory = -1 (meaning "all")
+    $per_raw = isset($_POST['perCategory']) ? (int) $_POST['perCategory'] : 3;
+    $per_category = ($per_raw === -1) ? -1 : max(1, (int) $per_raw);
+
+    // maxCategories can stay as string/int; empty means "no cap"
+    $max_categories = isset($_POST['maxCategories']) ? self::sanitize_int_or_empty($_POST['maxCategories']) : '';
+
+    $eager_first = isset($_POST['eagerFirst']) ? max(0, absint($_POST['eagerFirst'])) : 3;
 
 		$terms   = self::get_filter_terms_cached($filters);
 		$grouped = self::get_grouped_videos_cached($filters, $per_category, $max_categories);
@@ -750,7 +756,24 @@ final class Salient_Video_Library {
 		 */
 		if (trim($thumb_html) === '' && $video_url !== '') {
 			$thumb_html = sprintf(
-				'<a class="svl__lightbox pretty_photo" href="%1$s" aria-label="Play video: %2$s">%3$s<span class="svl__play" aria-hidden="true"></span></a>',
+				// '<a class="svl__lightbox pretty_photo" href="%1$s" aria-label="Play video: %2$s">%3$s<span class="svl__play" aria-hidden="true"></span></a>',
+        '<div class="nectar-video-box" data-color="default-accent-color" data-play-button-size="default" data-border-radius="none" data-hover="default" data-shadow="none">
+<div class="inner-wrap img-loaded"><a href="%1$s" class="full-link" target="_blank" rel="noopener" data-fancybox=""><span class="screen-reader-text">Play Video</span></a>
+%3$s
+<a href="%1$s" data-style="default" data-parent-hover="" data-font-style="p" data-color="default" class="play_button_2 large nectar_video_lightbox" target="_blank" rel="noopener" data-fancybox="">
+<span>
+<span class="screen-reader-text">Play Video %2$s</span>
+<span class="play">
+<span class="inner-wrap inner">
+<svg role="none" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="600px" height="800px" x="0px" y="0px" viewBox="0 0 600 800" enable-background="new 0 0 600 800" xml:space="preserve">
+<path fill="none" d="M0-1.79v800L600,395L0-1.79z"></path>
+</svg>
+</span>
+</span>
+</span>
+</a>
+</div>
+</div>',
 				esc_url($video_url),
 				esc_attr($it['title']),
 				$img
@@ -774,7 +797,6 @@ final class Salient_Video_Library {
 
 		$html  = '<article class="svl__card" role="listitem">';
 		$html .= '<div class="svl__thumb">' . $thumb_html . '</div>';
-		$html .= '<div class="svl__watch">Watch video</div>';
 		$html .= '<h3 class="svl__name">' . $title . '</h3>';
 		if ($desc !== '') $html .= '<p class="svl__desc">' . $desc . '</p>';
 		$html .= '</article>';

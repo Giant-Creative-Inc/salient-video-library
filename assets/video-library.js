@@ -99,26 +99,40 @@ jQuery(function ($) {
       }
     }
 
-    function reinitLightboxes() {
-      try {
-        // Some Salient builds expose Nectar init helpers
-        if (window.Nectar && typeof window.Nectar.lightboxInit === "function") {
-          window.Nectar.lightboxInit();
-        }
+  function bindVideoLightboxDelegated() {
+    // Prevent double-binding if your init runs twice
+    if ($root.data("svlLightboxBound")) return;
+    $root.data("svlLightboxBound", true);
 
-        // prettyPhoto (common Salient setup)
-        if (typeof window.prettyPhoto === "function" && $.fn.prettyPhoto) {
-          $("a.pretty_photo").prettyPhoto();
-        }
+    $root.on("click", "a.nectar_video_lightbox", function (e) {
+      // If fancybox exists, force open with fancybox (works after AJAX)
+      if (typeof $.fancybox === "function") {
+        e.preventDefault();
 
-        // magnific (some installs)
-        if ($.fn.magnificPopup) {
-          $("a.pretty_photo").magnificPopup({ type: "iframe" });
-        }
-      } catch (e) {
-        // no-op
+        const $a = $(this);
+
+        // Salient usually puts the video URL in href, but we’ll fallback
+        const url =
+          $a.attr("href") ||
+          $a.data("video-url") ||
+          $a.attr("data-video-url") ||
+          "";
+
+        if (!url) return;
+
+        $.fancybox.open({
+          src: url,
+          type: "iframe",
+          opts: {
+            iframe: { preload: false },
+            smallBtn: true,
+            toolbar: true,
+          },
+        });
       }
-    }
+      // If fancybox isn't present, let the default behavior happen.
+    });
+  }
 
     function requestUpdate() {
       if (isLoading) return;
@@ -127,6 +141,13 @@ jQuery(function ($) {
       setLoading(true, SVL?.strings?.loading || "Loading videos…");
 
       const f = getFilters();
+
+      // FORCE correct values when category is locked (taxonomy archive)
+      const perCategory =
+        lockedCategoryId > 0 ? -1 : (SVL?.config?.perCategory ?? 3);
+
+      const maxCategories =
+        lockedCategoryId > 0 ? "1" : (SVL?.config?.maxCategories ?? "");
 
       $.ajax({
         url: SVL.ajaxUrl,
@@ -139,11 +160,8 @@ jQuery(function ($) {
           product: f.product,
           project: f.project,
           videoCategory: f.videoCategory,
-
-          // NEW: if locked, PHP already sets perCategory=-1 and maxCategories=1 via localization,
-          // but we still pass them through explicitly.
-          perCategory: SVL?.config?.perCategory ?? 3,
-          maxCategories: SVL?.config?.maxCategories ?? "",
+          perCategory: perCategory,
+          maxCategories: maxCategories,
           eagerFirst: SVL?.config?.eagerFirst ?? 3,
         },
       })
@@ -163,11 +181,12 @@ jQuery(function ($) {
             $root.append(res.data.schema);
           }
 
-          reinitLightboxes();
+          bindVideoLightboxDelegated();
         })
         .always(function () {
           setLoading(false);
           updateClearButtonVisibility();
+          bindVideoLightboxDelegated();
         });
     }
 
@@ -196,7 +215,6 @@ jQuery(function ($) {
     });
 
     $root.on("click", "[data-svl-clear]", function () {
-      // Only reset non-locked selects
       $root.find('[data-svl-filter="market"]').val("0");
       $root.find('[data-svl-filter="product"]').val("0");
       $root.find('[data-svl-filter="project"]').val("0");
@@ -211,11 +229,11 @@ jQuery(function ($) {
 
     // init
     updateClearButtonVisibility();
-    reinitLightboxes();
+    bindVideoLightboxDelegated();
 
-    // On archive pages, initial render is already correct, but ensure state is applied
-    if (lockedCategoryId > 0) {
-      requestUpdate();
-    }
+    // // On archive pages, initial render is already correct, but ensure state is applied
+    // if (lockedCategoryId > 0) {
+    //   requestUpdate();
+    // }
   });
 });
