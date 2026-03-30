@@ -429,7 +429,7 @@ final class Salient_Video_Library {
 				<div class="svl__status" role="status" aria-live="polite" aria-busy="false" data-svl-status>
 					<span class="svl__loader" data-svl-loader hidden>
 						<span class="svl__spinner" aria-hidden="true"></span>
-						<span class="svl__loader-text">Loading videos&hellip;</span>
+						<span class="svl__loader-text">Loading videos...</span>
 					</span>
 				</div>
 			</div>

@@ -4,6 +4,10 @@
 
 .svl {
 	width: 100%;
+	--svl-white: #ffffff;
+	--svl-gray:  #4b5563;
+	--svl-red:   #e31937;
+	--svl-black: #0d0d0e;
 }
 
 /* Screen-reader only utility */
@@ -29,6 +33,7 @@
 	gap: 12px;
 	align-items: center;
 	padding: 12px 0 18px;
+	position: relative;
 }
 
 .svl__filters-label {
@@ -36,19 +41,147 @@
 	margin-right: 8px;
 }
 
-.svl__select {
-	min-width: 180px;
-	height: 40px;
+/* Native select — visually hidden but in DOM so jQuery .trigger("change") bubbles */
+.svl__select--hidden {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	padding: 0 !important;
+	margin: 0 !important;
+	overflow: hidden !important;
+	clip: rect(0 0 0 0) !important;
+	white-space: nowrap !important;
+	border: 0 !important;
+	opacity: 0 !important;
+	pointer-events: none !important;
+	top: 0;
+	left: 0;
 }
 
-.svl__clear {
-	margin-left: auto;
-	height: 40px;
-	padding: 0 14px;
-	border-radius: 999px;
-	border: 1px solid rgba(255, 255, 255, 0.18);
-	background: rgba(255, 255, 255, 0.06);
+/* ==========================================================================
+   Custom Select Dropdown
+   ========================================================================== */
+
+.svl__select-wrapper {
+	position: relative;
+	min-width: 180px;
 }
+
+body[data-button-style^="rounded"] button.svl__select-trigger {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	width: 100%;
+	height: 44px;
+	padding: 0 14px;
+	background: #292929;
+	border: 1px solid #424242;
+	color: var(--svl-white);
+	font-size: 14px;
+	font-family: inherit;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	text-align: left;
+	border-radius: 6px !important;
+	-webkit-border-radius: 6px !important;
+	white-space: nowrap;
+}
+
+.svl__select-trigger:hover       { background: #1a1a1a; }
+.svl__select-trigger:focus-visible { outline: 2px solid var(--svl-gray); outline-offset: 2px; }
+
+.svl__select-value {
+	flex: 1;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.svl__select-trigger--active .svl__select-value {
+	color: var(--svl-red);
+	font-weight: 600;
+}
+
+.svl__select-arrow {
+	flex-shrink: 0;
+	display: flex;
+	align-items: center;
+	transition: transform 0.15s ease;
+}
+
+.svl__select-trigger[aria-expanded="true"] .svl__select-arrow {
+	transform: rotate(180deg);
+}
+
+.svl__select-listbox {
+	position: absolute;
+	top: 100%;
+	left: 0;
+	right: 0;
+	z-index: 9999;
+	background: var(--svl-black);
+	border: 1px solid var(--svl-gray);
+	border-top: 0;
+	list-style: none;
+	margin: 0;
+	padding: 4px 0;
+	max-height: 260px;
+	overflow-y: auto;
+	scrollbar-width: thin;
+	scrollbar-color: var(--svl-gray) var(--svl-black);
+}
+
+.svl__select-listbox[hidden] { display: none; }
+
+.svl__select-option {
+	padding: 10px 14px;
+	color: var(--svl-white);
+	cursor: pointer;
+	font-size: 14px;
+	font-family: inherit;
+	list-style: none;
+}
+
+.svl__select-option--focused       { background: rgba(75, 85, 99, 0.3); }
+.svl__select-option[aria-selected="true"] { color: var(--svl-red); font-weight: 600; }
+.svl__select-option[aria-selected="true"].svl__select-option--focused { color: var(--svl-red); }
+
+/* Filters bar loading pill */
+.svl__filters-loader {
+	position: absolute;
+	top: 105%;
+	left: 50%;
+	transform: translateX(-50%);
+	display: inline-flex;
+	align-items: center;
+	gap: 10px;
+	padding: 8px 12px;
+	border-radius: 999px;
+	background: #292929;
+	backdrop-filter: blur(6px);
+	z-index: 99;
+	color: var(--svl-white);
+}
+
+.svl__filters-loader[hidden]      { display: none; }
+.svl__filters-loader-text          { font-size: 13px; opacity: 0.75; }
+
+.svl__clear {
+	height: 44px;
+	padding: 0 14px;
+	border: none;
+	background: transparent;
+	color: var(--svl-white);
+	font-size: 14px;
+	font-family: inherit;
+	letter-spacing: 0.02em;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.svl__clear:hover          { background: var(--svl-gray); color: var(--svl-black); }
+.svl__clear:focus-visible  { outline: 2px solid var(--svl-gray); outline-offset: 2px; }
+.svl__clear[hidden]        { opacity: 0; pointer-events: none; }
 
 .svl__status {
 	display: flex;
@@ -56,6 +189,7 @@
 	min-height: 40px;
 }
 
+.svl__loader[hidden] { display: none; }
 .svl__loader {
 	display: inline-flex;
 	align-items: center;
